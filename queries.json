@@ -1,0 +1,268 @@
+[
+  {
+    "id": "Q01",
+    "category": "keyword_trap",
+    "query": "Is an attacker penalised for an offside offence if they receive the ball directly from a corner kick?",
+    "law": "Law 11",
+    "law_title": "Offside",
+    "page": 111,
+    "distractor_passage_description": "High lexical overlap with Law 11.1 defining offside position (nearer to opponent goal line than ball and second-last opponent).",
+    "gold_spans": [
+      "There is no offside offence if a player receives the ball directly from:",
+      "a goal kick",
+      "a throw-in",
+      "a corner kick"
+    ],
+    "explanation": "Bi-encoder is distracted by general 'offside position' definitions; the cross-encoder correctly identifies the specific 'No offence' clause."
+  },
+  {
+    "id": "Q02",
+    "category": "keyword_trap",
+    "query": "What is the restart if a dropped ball enters the goal without touching at least two players?",
+    "law": "Law 8",
+    "law_title": "The Start and Restart of Play",
+    "page": 98,
+    "distractor_passage_description": "General dropped ball mechanics and dropping procedure in Law 8.1.",
+    "gold_spans": [
+      "If a dropped ball enters the goal without touching at least two players, play is restarted with:",
+      "a goal kick if it enters the opponents’ goal",
+      "a corner kick if it enters the team’s goal"
+    ],
+    "explanation": "General dropped ball procedure chunks crowd top ranks; the specific rare scoring outcome is buried unless reranked."
+  },
+  {
+    "id": "Q03",
+    "category": "keyword_trap",
+    "query": "Can a goal be scored directly into the opponent's goal from a throw-in?",
+    "law": "Law 15",
+    "law_title": "The Throw-in",
+    "page": 142,
+    "distractor_passage_description": "General throw-in execution instructions and pitch line dimensions.",
+    "gold_spans": [
+      "A goal cannot be scored directly from a throw-in:",
+      "if the ball enters the opponents’ goal – a goal kick is awarded"
+    ],
+    "explanation": "Dense retrieval pulls throw-in procedures and goal celebration chunks; cross-encoder isolates the explicit prohibition."
+  },
+  {
+    "id": "Q04",
+    "category": "keyword_trap",
+    "query": "Can a player score an own goal directly from taking a corner kick into their own net?",
+    "law": "Law 17",
+    "law_title": "The Corner Kick",
+    "page": 149,
+    "distractor_passage_description": "Passages stating 'A goal may be scored directly from a corner kick, but only against the opposing team'.",
+    "gold_spans": [
+      "if the ball directly enters the kicker’s goal, a corner kick is awarded to the opponents"
+    ],
+    "explanation": "Bi-encoder confuses scoring directly from a corner with own-goal restrictions; cross-encoder selects the opponent corner kick award."
+  },
+  {
+    "id": "Q05",
+    "category": "exception",
+    "query": "Under what condition is an attacker in an offside position NOT penalized when receiving the ball from an opponent?",
+    "law": "Law 11",
+    "law_title": "Offside",
+    "page": 110,
+    "distractor_passage_description": "Law 11.2 general offside offence on gaining an advantage from rebounds/deflections.",
+    "gold_spans": [
+      "receiving the ball from an opponent who deliberately played* the ball, including by deliberate handball, is not considered to have gained an advantage, unless it was a deliberate save"
+    ],
+    "explanation": "General offside offence rule is retrieved initially; the cross-encoder prioritizes the 'deliberate play' exception."
+  },
+  {
+    "id": "Q06",
+    "category": "exception",
+    "query": "When is a goalkeeper permitted to handle the ball in their penalty area after a deliberate backpass from a teammate?",
+    "law": "Law 12",
+    "law_title": "Fouls and Misconduct",
+    "page": 116,
+    "distractor_passage_description": "General prohibition against handling backpasses inside penalty box.",
+    "gold_spans": [
+      "unless the goalkeeper has clearly kicked or attempted to kick the ball to release it into play, after: it has been deliberately kicked to the goalkeeper by a team-mate"
+    ],
+    "explanation": "Dense search retrieves the general sanction; cross-encoder targets the specific release/clearance exception."
+  },
+  {
+    "id": "Q07",
+    "category": "exception",
+    "query": "What happens if an outside agent touches the ball while it is moving into the goal, but it still enters the goal?",
+    "law": "Law 3",
+    "law_title": "The Players",
+    "page": 64,
+    "distractor_passage_description": "General Law 3/Law 9 rule that outside agent interference stops play for a dropped ball.",
+    "gold_spans": [
+      "if the ball is going into the goal and the interference does not prevent a defending player playing the ball; the goal is awarded if the ball enters the goal (even if contact was made with the ball)"
+    ],
+    "explanation": "General outside agent chunks recommend stopping play; cross-encoder retrieves the narrow goal-line exception."
+  },
+  {
+    "id": "Q08",
+    "category": "exception",
+    "query": "What sanction is given if a player unfairly delays taking a goal kick after the referee's five-second countdown?",
+    "law": "Law 16",
+    "law_title": "The Goal Kick",
+    "page": 145,
+    "distractor_passage_description": "Old rulebook delay of game cautions (yellow card for delaying restart).",
+    "gold_spans": [
+      "if the goal kick has not been taken by the end of the five seconds, a corner kick is awarded to the opposing team"
+    ],
+    "explanation": "The 2026/27 countdown protocol awards a corner kick, overturning the standard time-wasting yellow card assumption."
+  },
+  {
+    "id": "Q09",
+    "category": "negation",
+    "query": "Can a goalkeeper score a goal against the opponent directly by throwing the ball with their hands?",
+    "law": "Law 10",
+    "law_title": "Determining the Outcome of a Match",
+    "page": 104,
+    "distractor_passage_description": "Passages describing a goal being scored when the whole ball crosses the goal line.",
+    "gold_spans": [
+      "If the goalkeeper throws the ball directly into the opponents’ goal, a goal kick is awarded."
+    ],
+    "explanation": "Bi-encoders struggle with the negative constraint of 'cannot score by throwing'; cross-encoder retrieves the goal kick restart."
+  },
+  {
+    "id": "Q10",
+    "category": "negation",
+    "query": "Can a goal be awarded if the ball strikes the referee, stays on the pitch, and goes straight into the net?",
+    "law": "Law 9",
+    "law_title": "The Ball In and Out of Play",
+    "page": 101,
+    "distractor_passage_description": "Passages defining the ball remaining in play when it rebounds off match officials.",
+    "gold_spans": [
+      "touches a match official, remains on the field of play and: a team starts a promising attack or the ball goes directly into the goal or the team in possession of the ball changes. In all these cases, play is restarted with a dropped ball."
+    ],
+    "explanation": "Bi-encoder assumes match official is part of play; cross-encoder identifies the negative condition requiring a dropped ball restart."
+  },
+  {
+    "id": "Q11",
+    "category": "negation",
+    "query": "What offence occurs if a goalkeeper touches the ball with their hands a second time after releasing it, before any other player touches it?",
+    "law": "Law 12",
+    "law_title": "Fouls and Misconduct",
+    "page": 116,
+    "distractor_passage_description": "General handball rules for outfield players.",
+    "gold_spans": [
+      "touches the ball with the hand/arm after releasing it and before it has touched another player"
+    ],
+    "explanation": "The prompt restricts handling; cross-encoder isolates the secondary handling clause inside Law 12.2."
+  },
+  {
+    "id": "Q12",
+    "category": "negation",
+    "query": "Can a penalty kick be taken if the goalkeeper is not standing on the goal line?",
+    "law": "Law 14",
+    "law_title": "The Penalty Kick",
+    "page": 135,
+    "distractor_passage_description": "General penalty kick procedure and kicker placement.",
+    "gold_spans": [
+      "The defending goalkeeper must remain on the goal line, facing the kicker, between the goalposts, without touching the goalposts, crossbar or goal net, until the ball has been kicked."
+    ],
+    "explanation": "Cross-encoder enforces the strict positional constraint on the goalkeeper before the ball is kicked."
+  },
+  {
+    "id": "Q13",
+    "category": "buried_chunk",
+    "query": "What happens if an extra player from the scoring team is on the pitch when a goal is scored, discovered before restart?",
+    "law": "Law 3",
+    "law_title": "The Players",
+    "page": 65,
+    "distractor_passage_description": "Law 3.7 extra persons on pitch general administrative rules.",
+    "gold_spans": [
+      "a goal is disallowed if the extra person was a: player, substitute, substituted player, sent-off player or team official of the team that scored the goal; play is restarted with a direct free kick"
+    ],
+    "explanation": "General substitution and team list chunks bury the post-goal extra person sanction; cross-encoder boosts it to rank 1."
+  },
+  {
+    "id": "Q14",
+    "category": "buried_chunk",
+    "query": "What is the restart if both the defending and attacking teams commit encroachment simultaneously during a penalty kick?",
+    "law": "Law 14",
+    "law_title": "The Penalty Kick",
+    "page": 139,
+    "distractor_passage_description": "Encroachment solely by attackers (indirect free kick if missed) or solely by defenders.",
+    "gold_spans": [
+      "Encroachment by defending and attacking player(s): penalty is retaken"
+    ],
+    "explanation": "Single-team encroachment rules appear at ranks 1-3; the dual-encroachment clause is buried at ranks 5-8 until reranked."
+  },
+  {
+    "id": "Q15",
+    "category": "buried_chunk",
+    "query": "At what exact moment is a substitution officially completed according to the Laws?",
+    "law": "Law 3",
+    "law_title": "The Players",
+    "page": 61,
+    "distractor_passage_description": "Chunks discussing player leaving at the nearest boundary line.",
+    "gold_spans": [
+      "The substitution is completed when a substitute enters the field of play; from that moment, the replaced player becomes a substituted player"
+    ],
+    "explanation": "Leaving the pitch is discussed first; completion upon entry is buried deeper in Law 3.3."
+  },
+  {
+    "id": "Q16",
+    "category": "buried_chunk",
+    "query": "What happens if the match ball bursts while moving forward from a penalty kick before touching any player or post?",
+    "law": "Law 2",
+    "law_title": "The Ball",
+    "page": 56,
+    "distractor_passage_description": "General defective ball replacement restart (dropped ball).",
+    "gold_spans": [
+      "the penalty kick is retaken"
+    ],
+    "explanation": "General ball burst rule is a dropped ball; the penalty kick exception is buried at the end of Law 2.2."
+  },
+  {
+    "id": "Q17",
+    "category": "control",
+    "query": "What is the required radius of the center circle marked on the field of play?",
+    "law": "Law 1",
+    "law_title": "The Field of Play",
+    "page": 46,
+    "distractor_passage_description": "None (direct query).",
+    "gold_spans": [
+      "a radius of 9.15 m (10 yds)"
+    ],
+    "explanation": "Standard control query testing simple entity extraction."
+  },
+  {
+    "id": "Q18",
+    "category": "control",
+    "query": "What is the minimum number of players a team must have on the field for a match to start or continue?",
+    "law": "Law 3",
+    "law_title": "The Players",
+    "page": 59,
+    "distractor_passage_description": "None (direct query).",
+    "gold_spans": [
+      "A match may not start or continue if either team has fewer than seven players."
+    ],
+    "explanation": "Control query assessing basic numeric rule retrieval."
+  },
+  {
+    "id": "Q19",
+    "category": "control",
+    "query": "What is the standard duration of each half in a regulation football match?",
+    "law": "Law 7",
+    "law_title": "The Duration of the Match",
+    "page": 93,
+    "distractor_passage_description": "None (direct query).",
+    "gold_spans": [
+      "two equal halves of 45 minutes"
+    ],
+    "explanation": "Control query testing baseline temporal retrieval."
+  },
+  {
+    "id": "Q20",
+    "category": "control",
+    "query": "From where within the goal area must a goal kick be taken?",
+    "law": "Law 16",
+    "law_title": "The Goal Kick",
+    "page": 145,
+    "distractor_passage_description": "None (direct query).",
+    "gold_spans": [
+      "The ball must be stationary and is kicked from any point within the goal area by a player of the defending team"
+    ],
+    "explanation": "Control query evaluating simple procedural rule retrieval."
+  }
+]

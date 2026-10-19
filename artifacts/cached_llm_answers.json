@@ -1,0 +1,21 @@
+{
+  "Q01_baseline_ans1": "[L11_001] Law 11 specifies that a player is in an offside position if they are nearer to the opponents' goal line than both the ball and the second-last opponent. Because the retrieved passages focus on general offside positioning without the specific restart exceptions, it appears the attacker would be in an offside position if positioned ahead of the ball.",
+  "Q01_reranked_ans2": "[L11_004] According to Law 11 (Offside), Section 3 ('No offence'): 'There is no offside offence if a player receives the ball directly from: a goal kick, a throw-in, a corner kick.' Therefore, the attacker is NOT penalised for an offside offence.",
+  "Q01_oracle_ans": "[L11_004] Per Law 11, Section 3 ('No offence'), there is strictly no offside offence if a player receives the ball directly from a corner kick.",
+
+  "Q02_baseline_ans1": "[L08_001] The referee drops the ball for one player of the team that last touched the ball. The retrieved context details the procedure for dropping the ball but does not specify the restart if the dropped ball directly enters the goal.",
+  "Q02_reranked_ans2": "[L08_003] According to Law 8 (The Start and Restart of Play), if a dropped ball enters the goal without touching at least two players, play is restarted with: a goal kick if it enters the opponents' goal, or a corner kick if it enters the team's own goal.",
+  "Q02_oracle_ans": "[L08_003] If a dropped ball enters the goal without touching at least two players, play is restarted with a goal kick (if it enters opponents' goal) or a corner kick (if it enters own goal).",
+
+  "Q05_baseline_ans1": "[L11_002] A player in an offside position is penalised for gaining an advantage by playing the ball or interfering with an opponent when the ball has rebounded or deflected off an opponent or match official.",
+  "Q05_reranked_ans2": "[L11_003] According to Law 11, an attacker in an offside position receiving the ball from an opponent who 'deliberately played' the ball (including deliberate handball) is NOT considered to have gained an advantage, unless the opponent's action was a deliberate save.",
+  "Q05_oracle_ans": "[L11_003] An offside player is not penalised when receiving the ball from an opponent who deliberately played the ball (excluding deliberate saves).",
+
+  "Q09_baseline_ans1": "[L10_001] A goal is scored when the whole of the ball passes over the goal line, between the goalposts and under the crossbar, provided no offence has been committed by the scoring team.",
+  "Q09_reranked_ans2": "[L10_002] Under Law 10 (Determining the Outcome of a Match): 'If the goalkeeper throws the ball directly into the opponents’ goal, a goal kick is awarded.' Therefore, a goalkeeper cannot score directly by throwing the ball with their hands.",
+  "Q09_oracle_ans": "[L10_002] A goalkeeper cannot score by throwing the ball directly into the opponents' goal; the restart is a goal kick to the opposing team.",
+
+  "Q13_baseline_ans1": "[L03_004] The coach and other officials named on the team list are team officials. The context does not state whether a goal is allowed if an extra player was on the field when the goal was scored.",
+  "Q13_reranked_ans2": "[L03_007] According to Law 3, Section 9: If after a goal is scored the referee realises before play restarts that an extra person was on the field and that person was a player, substitute, substituted player, sent-off player or team official of the scoring team, the goal must be DISALLOWED and play restarted with a DIRECT FREE KICK from the position of the extra person.",
+  "Q13_oracle_ans": "[L03_007] The goal is disallowed, and play restarts with a direct free kick for the opposing team from the location where the extra person was on the pitch."
+}

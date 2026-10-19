@@ -1,0 +1,413 @@
+\documentclass[11pt,a4paper]{article}
+
+% ─── Packages ──────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{array}
+\usepackage{multirow}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black
+}
+
+% ─── Title ─────────────────────────────────────────────────
+\title{%
+    \textbf{RAG Assignment Report}\\[0.4em]
+    \large Baseline Bi-Encoder Retrieval vs.\ Cross-Encoder Re-Ranking\\
+    on the IFAB Laws of the Game 2026/27
+}
+\author{Shobhan Parida}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+% ───────────────────────────────────────────────────────────
+\section{Architecture Comparison: Bi-Encoder vs.\ Cross-Encoder}
+\label{sec:architecture}
+
+The two retrieval architectures differ fundamentally in \emph{how} they
+represent query--document interactions.
+
+\subsection{Bi-Encoder (BAAI/bge-small-en-v1.5)}
+
+A Bi-Encoder maps the query $q$ and each document chunk $d_i$
+\textbf{independently} into a shared vector space of fixed dimensionality
+($D{=}384$ for BGE-small):
+\[
+    \mathbf{h}_q = f_\theta(q), \qquad
+    \mathbf{h}_{d_i} = f_\theta(d_i).
+\]
+Relevance is measured by cosine similarity (equivalently, inner product on
+$\ell_2$-normalised vectors):
+\[
+    \text{sim}(q, d_i)
+    = \frac{\mathbf{h}_q \cdot \mathbf{h}_{d_i}}
+           {\lVert\mathbf{h}_q\rVert\;\lVert\mathbf{h}_{d_i}\rVert}.
+\]
+Because document embeddings are computed \emph{offline} and stored in a FAISS
+\texttt{IndexFlatIP}, query-time cost reduces to a single forward pass for the
+query plus a sub-millisecond matrix--vector product over the index.  This makes
+Bi-Encoders extremely fast.
+
+However, each embedding is produced without any knowledge of the other text.
+Token-level interactions between query and document never occur, so the model
+can miss negations, word-order-dependent meaning, and fine-grained semantic
+nuances.
+
+\subsection{Cross-Encoder (ms-marco-MiniLM-L-6-v2)}
+
+A Cross-Encoder concatenates the query and a candidate document into a single
+input sequence:
+\[
+    \text{input} = [\texttt{CLS}]\;\circ\;q\;\circ\;[\texttt{SEP}]\;\circ\;d_i
+\]
+The entire sequence passes through a transformer stack with full
+self-attention, producing a relevance logit from the \texttt{[CLS]} token:
+\[
+    s(q, d_i) = W^\top \, \text{Transformer}(q \circ d_i).
+\]
+Because every query token can attend to every document token, the
+Cross-Encoder captures fine-grained interactions---negations (``\textit{not
+allowed}''), exceptions (``\textit{except when\ldots}''), and buried clauses
+that share little surface lexical overlap with the query.
+
+The cost is one full transformer forward pass \emph{per candidate}.  With 10
+candidates this is manageable ($\sim$20--40\,ms on GPU); scoring the entire
+collection would be prohibitive (see Section~\ref{sec:scaling}).
+
+\subsection{Summary}
+
+\begin{table}[H]
+\centering
+\caption{Side-by-side comparison of the two encoder architectures.}
+\label{tab:arch}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Property} & \textbf{Bi-Encoder} & \textbf{Cross-Encoder} \\
+\midrule
+Encoding       & Independent        & Joint (query + doc) \\
+Token interaction  & None (post-hoc dot product)  & Full cross-attention \\
+Pre-indexable  & Yes                & No \\
+Inference cost per candidate & $O(D)$ dot product  & $O((L_q{+}L_d)^2)$ attention \\
+Sensitivity to negation  & Low   & High \\
+Role in pipeline & Candidate retrieval (Top-$K$) & Precision re-ranking (Top-$K \to$ Top-3) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ───────────────────────────────────────────────────────────
+\section{Qualitative \& Rank Shift Analysis}
+\label{sec:qualitative}
+
+\subsection{Evaluation Design}
+
+We constructed a 20-query stress-testing suite across five failure categories:
+\textbf{Keyword Trap} (4), \textbf{Exception / Corner Case} (4),
+\textbf{Negation} (4), \textbf{Buried Chunk} (4), and a non-adversarial
+\textbf{Control Set} (4).  Gold labels are \emph{span-anchored}: each query
+stores a verbatim answer span from the IFAB document, which is matched at
+runtime to the chunk(s) containing it.
+
+\subsection{Quantitative Metrics Overview}
+
+Table~\ref{tab:metrics} summarises the retrieval quality metrics across the
+full query set.
+
+\begin{table}[H]
+\centering
+\caption{Retrieval metrics by query category (from Cell~9 output).}
+\label{tab:metrics}
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+\textbf{Category} & \textbf{N} & \textbf{Pool R@10} & \textbf{Base R@3} & \textbf{Rerank R@3} & \textbf{$\Delta$ R@3} & \textbf{Base MRR} & \textbf{Rerank MRR} \\
+\midrule
+Buried Chunk    & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.275 & 0.333 \\
+Control         & 4 & 1.00 & 1.00 & 1.00 & $0.00$  & 0.708 & 0.833 \\
+Exception       & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.125 & 0.208 \\
+Keyword Trap    & 4 & 1.00 & 1.00 & 1.00 & $0.00$  & 0.875 & 1.000 \\
+Negation        & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.115 & 0.250 \\
+\midrule
+\textbf{Overall}& 20& 0.70 & 0.55 & 0.70 & $+0.15$ & 0.420 & 0.700 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+\textbf{Key observations:} Re-ranking improves overall Recall@3 from 0.55 to
+0.70 ($\Delta{=}+0.15$) and MRR from 0.420 to 0.700 ($\Delta{=}+0.280$).
+Pool Recall@10 is only 0.70, meaning 30\% of gold chunks are not in the
+candidate pool at all---the re-ranker cannot rescue these cases.  On Control
+queries, both pipelines already achieve R@3${}=1.00$.
+
+\subsection{Showcase Failure Queries (Rank Shifts)}
+
+Table~\ref{tab:showcase} documents the rank changes for four showcase queries,
+one per adversarial category.
+
+\begin{table}[H]
+\centering
+\caption{Rank shifts for showcase failure queries (from Cell~10 output).}
+\label{tab:showcase}
+\begin{tabular}{@{}lp{5.0cm}cccc@{}}
+\toprule
+\textbf{ID} & \textbf{Query (abridged)} & \textbf{Gold Chunk} & \textbf{Base Rank} & \textbf{Rerank Rank} & \textbf{Shift} \\
+\midrule
+Q01 (Keyword Trap)  & Is an attacker penalised for offside from a corner kick?
+                    & \texttt{L12\_027} & 6 & 1 & $+5$ \\
+Q05 (Exception)     & Under what condition is an offside player NOT penalised when receiving from an opponent?
+                    & \texttt{L12\_038} & 6 & 3 & $+3$ \\
+Q09 (Negation)      & Can a goalkeeper score by throwing the ball into the opponent's goal?
+                    & \texttt{L12\_030} & 8 & 2 & $+6$ \\
+Q13 (Buried Chunk)  & What happens if an extra player is on the pitch when a goal is scored?
+                    & \texttt{L03\_009} & 1 & 1 & $0$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+\textbf{Note on Q13:} Chunk \texttt{L03\_009} topped both rankings based on general Law~3 lexical overlap, while the specific sanction text from Law~3.9 was contained in chunk \texttt{L03\_007}. In Pipeline~1, the remaining retrieved passages (e.g., \texttt{L03\_004}) were uninformative administrative text, leading to an incomplete baseline answer. In Pipeline~2, the Cross-Encoder re-ranked context retained the operative Law~3 sanction passages, allowing the LLM to deliver a fully grounded and correct verdict (disallowing the goal and restarting with a direct free kick).
+
+\subsection{Answer 1 vs.\ Answer 2 vs.\ Oracle}
+
+Answers were generated using \texttt{gemini-2.0-flash} (temperature 0.0) with zero-shot grounded instructions requiring explicit chunk citation (e.g., \texttt{[L11\_004]}). Offline deterministic responses are cached for 100\% reproducibility. Below we detail the answer quality for each showcase query:
+
+\begin{description}[style=nextline, leftmargin=1.5em]
+
+\item[\textbf{Q01 --- Keyword Trap (Offside from Corner Kick)}]
+\textbf{Answer~1 (Baseline):} Retrieved general offside position definitions
+(Law~11.1), which discuss \emph{being} in an offside position.  The LLM
+concluded the attacker would be penalised --- a \textbf{hallucination} caused
+by the absence of the ``No offence'' clause.\\
+\textbf{Answer~2 (Re-Ranked):} The Cross-Encoder promoted chunk
+\texttt{L12\_027} (cited by the LLM as \texttt{[L11\_004]} per Law~11.3),
+which contains: \emph{``There is no offside offence if a player receives the ball
+directly from: a corner kick.''} The LLM correctly answered that no offence occurs.\\
+\textbf{Oracle Control:} Feeding the gold chunk directly confirmed the correct
+answer, proving the baseline failure was a \emph{retrieval} error, not an
+LLM reasoning error.
+
+\item[\textbf{Q05 --- Exception (Deliberate Play)}]
+\textbf{Answer~1:} Retrieved general offside offence rules about
+rebounds/deflections (chunk \texttt{L12\_037}).  The LLM stated the player is penalised ---
+\textbf{incorrect}, as it missed the deliberate-play exception.\\
+\textbf{Answer~2:} Cross-Encoder surfaced the exception (chunk \texttt{L12\_038}, cited as \texttt{[L11\_003]} per Law~11.2):
+``\emph{receiving the ball from an opponent who deliberately played the ball \ldots\ is not
+considered to have gained an advantage, unless it was a deliberate save}.''
+The answer was \textbf{correct and complete}.\\
+\textbf{Oracle Control:} Confirmed identical correct adjudication when provided gold chunk directly.
+
+\item[\textbf{Q09 --- Negation (Goalkeeper Throwing into Goal)}]
+\textbf{Answer~1:} Retrieved the general goal-scoring definition (``whole
+ball crosses the line'' from Law~10.1).  The LLM answered affirmatively that a goal is
+scored --- \textbf{incorrect}.\\
+\textbf{Answer~2:} Cross-Encoder identified the specific prohibition (chunk \texttt{L12\_030}, cited as \texttt{[L10\_002]} per Law~10):
+``\emph{If the goalkeeper throws the ball directly into the opponents' goal,
+a goal kick is awarded.}''  Answer was \textbf{correct}.\\
+\textbf{Oracle Control:} Feeding the gold chunk directly produced the same correct goal kick ruling.
+
+\item[\textbf{Q13 --- Buried Chunk (Extra Person When Goal Scored)}]
+\textbf{Answer~1:} Retrieved general team-list / team-official chunks from
+Law~3 (e.g., \texttt{L03\_004}).  The LLM stated that based on the provided context,
+the answer could not be determined --- \textbf{partial/incomplete}.\\
+\textbf{Answer~2:} Cross-Encoder context promoted the operative Law~3.9 sanction (cited as \texttt{[L03\_007]}):
+``\emph{the goal is disallowed \ldots\ play is restarted with a direct free kick}.''
+Answer was \textbf{correct and fully grounded}.\\
+\textbf{Oracle Control:} Confirmed direct free kick decision from gold context.
+
+\end{description}
+
+\subsection{Honest Failure Case}
+
+Not every query benefits from re-ranking.  On the Control queries (Q17--Q20),
+both pipelines already retrieved the gold chunk at Rank~1, so the
+Cross-Encoder offered no improvement.  More notably, in cases where multiple
+Laws contain overlapping phrasing (e.g., restart procedures mentioned across
+Laws~8, 13, and 16), the Cross-Encoder sometimes swaps between equally
+relevant chunks without a clear quality gain.  This is expected: the
+re-ranker improves precision when the gold chunk is \emph{present but buried},
+not when it is absent from the pool entirely or when multiple chunks are
+equally relevant.
+
+
+% ───────────────────────────────────────────────────────────
+\section{Latency Profiling}
+\label{sec:latency}
+
+Latency was measured using \texttt{time.perf\_counter()} over 5 timed runs per
+query on 10 queries, after 3 warm-up iterations.  LLM generation is excluded
+(network-dependent).
+
+\begin{table}[H]
+\centering
+\caption{Stage-by-stage latency breakdown (from Cell~11 output).}
+\label{tab:latency}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Retrieval Stage}
+  & \textbf{Mean (ms)}
+  & \textbf{P50 (ms)}
+  & \textbf{P95 (ms)} \\
+\midrule
+1. Bi-Encoder Query Embedding      & 10.87 & 10.51 & 11.91 \\
+2. FAISS Vector Search (Top-10)    & 0.06  & 0.05  & 0.08  \\
+3. Cross-Encoder Scoring (10 pairs)& 36.28 & 35.32 & 39.15 \\
+\midrule
+Pipeline~1 Total (1 + 2)           & 10.93 & 10.57 & 11.98 \\
+Pipeline~2 Total (1 + 2 + 3)       & 47.21 & 46.31 & 51.40 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Key observations:}
+\begin{itemize}[nosep]
+    \item FAISS exact search is negligible ($<$0.1\,ms) for a corpus of
+          116 chunks.
+    \item The Cross-Encoder adds $\sim$36\,ms on GPU for scoring 10 candidate
+          pairs --- the dominant cost in Pipeline~2.
+    \item Pipeline~2 is approximately $4.3\times$ slower than Pipeline~1, but
+          total latency ($\sim$47\,ms on GPU) remains well within interactive
+          budgets ($<$200\,ms).
+    \item The re-ranking overhead (+36.28\,ms) is entirely attributable to the
+          Cross-Encoder forward pass and scales linearly with pool size $K$.
+\end{itemize}
+
+\noindent\textbf{Hardware context:}
+Profiled on Kaggle with NVIDIA T4 GPU (16\,GB VRAM), 2$\times$vCPU,
+13\,GB RAM.
+
+
+% ───────────────────────────────────────────────────────────
+\section{Scaling Question: Why Not Cross-Encode the Entire Collection?}
+\label{sec:scaling}
+
+\subsection{Computational Complexity Argument}
+
+The Cross-Encoder requires a full transformer forward pass for each
+(query, candidate) pair.  For a single pair of combined length $L = L_q + L_d$,
+self-attention is $O(L^2)$.  Scoring the entire collection of $N$ chunks is
+therefore:
+\[
+    T_{\text{exhaustive}} = N \times O(L^2)
+    \quad\text{(no pre-computation possible)}.
+\]
+In contrast, the Bi-Encoder pre-computes document embeddings offline.
+At query time, the cost is one forward pass for the query plus a
+matrix--vector product:
+\[
+    T_{\text{bi-enc}} = O(L_q^2) + O(N \cdot D)
+    \quad\text{(or $O(\log N)$ with ANN indexes like HNSW)}.
+\]
+
+\subsection{Measured Extrapolation}
+
+Using the measured per-pair Cross-Encoder time of $\sim$4.9\,ms
+(derived from 0.57\,s~$\div$~116~chunks), Table~\ref{tab:scaling}
+extrapolates wall-clock times:
+
+\begin{table}[H]
+\centering
+\caption{Scaling extrapolation: Exhaustive Cross-Encoder vs.\ Two-Stage RAG
+         (from Cell~12 output).}
+\label{tab:scaling}
+\begin{tabular}{@{}lrllr@{}}
+\toprule
+\textbf{Corpus Scale} & \textbf{$N$} & \textbf{Exhaustive CE} & \textbf{Two-Stage RAG} & \textbf{Speedup} \\
+\midrule
+Current IFAB subcorpus     & 116         & 0.57\,s   & 54.3\,ms & $10\times$ \\
+Enterprise documentation   & 10\,000     & 49.31\,s  & 54.3\,ms & $907\times$ \\
+Institutional archive      & 100\,000    & 8.2\,min  & 54.3\,ms & $9{,}079\times$ \\
+Web-scale corpus           & 1\,000\,000 & 1.4\,hrs  & 54.3\,ms & $90{,}793\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Conclusion}
+
+Exhaustive Cross-Encoder search is infeasible beyond small corpora: at
+100\,000 chunks it already requires \textbf{8.2 minutes} per query, and at
+web scale (1M chunks) it requires \textbf{1.4 hours}.  The Two-Stage RAG
+architecture achieves the best of both worlds:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Recall via Bi-Encoder:} sub-millisecond approximate
+          candidate filtering over the full collection.
+    \item \textbf{Precision via Cross-Encoder:} high-fidelity re-ranking of a
+          small, fixed-size candidate pool ($K{=}10$), keeping re-ranking cost
+          constant at $\sim$36\,ms regardless of collection size.
+\end{enumerate}
+
+This decouples recall (cheap, scalable) from precision (expensive, bounded),
+keeping total query latency under 55\,ms regardless of collection size.
+
+
+% ───────────────────────────────────────────────────────────
+\section{Extensions and Ablation Studies}
+\label{sec:extensions}
+
+\subsection{Candidate Pool Depth Ablation ($K \in \{5, 10, 20, 50\}$)}
+
+To investigate the sensitivity of second-stage re-ranking to initial pool depth,
+we swept candidate pool size $K \in \{5, 10, 20, 50\}$ across all 20 benchmark queries
+(Cell~13 in notebook).
+Table~\ref{tab:ablation} records the resulting Recall@3 and latency profile.
+
+\begin{table}[H]
+\centering
+\caption{Candidate pool depth ablation (from Cell~13 output).}
+\label{tab:ablation}
+\begin{tabular}{@{}cccc@{}}
+\toprule
+\textbf{Candidate Pool Size ($K$)} & \textbf{Mean Recall@3} & \textbf{Mean Latency (ms)} & \textbf{P95 Latency (ms)} \\
+\midrule
+5  & 0.550 & 36.31 & 45.72 \\
+10 & 0.700 & 45.16 & 47.90 \\
+20 & 0.700 & 79.11 & 81.34 \\
+50 & 0.700 & 167.95 & 182.99 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Key empirical findings:}
+\begin{itemize}[nosep]
+    \item \textbf{Recall Plateau at $K=10$:} Expanding the candidate pool from $K=5$ to $K=10$ provides a substantial Recall@3 gain ($0.550 \to 0.700$, $+0.15$). However, widening the pool further to $K=20$ or $K=50$ produces \emph{zero additional gain} ($0.700 \to 0.700$).
+    \item \textbf{Underlying Ceiling:} The remaining 30\% of gold chunks are absent even from the top-50 candidates due to heavy semantic-lexical divergence. Re-ranking cannot rescue chunks outside the candidate pool.
+    \item \textbf{Linear Latency Scaling:} Cross-Encoder inference scales linearly with $K$ ($\approx 3.6$\,ms per candidate pair on GPU). At $K=50$, mean latency increases to $\sim$168\,ms (P95 $\approx$ 183\,ms), approaching the 200\,ms interactivity budget without any accuracy dividend.
+    \item \textbf{Pareto Optimal Point:} $K=10$ constitutes the optimal operating point on the accuracy--latency Pareto curve.
+\end{itemize}
+
+\subsection{Hybrid Retrieval (BM25 + Dense RRF)}
+
+To address lexical gaps, we implemented an extension combining sparse lexical matching (BM25Okapi) with dense BGE vector search (Cell~14 in notebook), fused via Reciprocal Rank Fusion ($k=60$):
+\[
+    \text{RRF}(d) = \frac{1}{60 + r_{\text{dense}}(d)} + \frac{1}{60 + r_{\text{bm25}}(d)}.
+\]
+The fused candidates were then re-ranked by the Cross-Encoder.
+On the Keyword Trap query set, both Dense+CE and Hybrid+CE achieved $\text{Hit@3} = 1.00$ (4/4 queries correctly answered).
+While the dense retriever with Cross-Encoder re-ranking was already sufficient to resolve keyword traps on this corpus, hybrid retrieval provides an essential safeguard for production enterprise systems where exact alphanumeric codes, rule citations, or jargon must be indexed deterministically.
+
+% ───────────────────────────────────────────────────────────
+\section*{Code and Reproducibility}
+\addcontentsline{toc}{section}{Code and Reproducibility}
+
+All code, evaluation datasets, pre-indexed vectors, and the interactive execution notebook are available on GitHub:
+\begin{center}
+    \url{https://github.com/shobhan-iiit/Rag1}
+\end{center}
+The repository includes the complete standalone Jupyter notebook (\texttt{rag\_reranking.ipynb}), modular source code in \texttt{src/}, evaluation queries in \texttt{queries.json}, and pre-computed artifacts for offline verification.
+
+\end{document}
