@@ -12,9 +12,12 @@ ass2/
 ├── requirements.txt                           # Pinned Python package dependencies
 ├── queries.json                               # 20 curated evaluation queries with verbatim gold spans
 ├── rag_reranking.ipynb                        # Master self-contained Jupyter Notebook (run top-to-bottom)
+├── report.tex                                 # Comprehensive LaTeX report covering all findings & metrics
 ├── Laws of the Game 2026_27_single pages.pdf  # Source document (260 pages; Laws 1–17 indexed)
 ├── artifacts/                                 # Committed artifacts for offline reproduction & grading
-│   └── cached_llm_answers.json                # Pre-computed grounded LLM answers for zero-cost runs
+│   ├── cached_llm_answers.json                # Pre-computed grounded LLM answers for zero-cost runs
+│   ├── chunks.json                            # Clause-aware chunked corpus (116 chunks, ≤ 320 tokens)
+│   └── faiss_index.bin                        # Pre-indexed FAISS IndexFlatIP vector store (384-dim)
 └── src/                                       # Modular Python components (clean & decoupled)
     ├── __init__.py                            # Package initializer
     ├── config.py                              # Hyperparameters, model paths, environment config
@@ -127,35 +130,71 @@ The 20-query evaluation set in `queries.json` stress-tests the retriever across 
 
 ## 📊 Summary of Empirical Results
 
-### Quantitative IR Metrics
-- **Pool Recall@10:** Reaches **1.00** across the benchmark, confirming that the candidate pool of 10 contains the relevant gold passage.
-- **Recall@3 Improvement:** Re-ranking boosts Recall@3 significantly on adversarial queries (from **0.50 $\rightarrow$ 1.00** on Keyword Traps and **0.50 $\rightarrow$ 1.00** on Exceptions).
-- **MRR Improvement:** Mean Reciprocal Rank improves from **0.55 $\rightarrow$ 0.92**, demonstrating that cross-encoder joint attention consistently elevates gold chunks to rank #1.
+---
 
-### Latency Tradeoff
-- **Pipeline 1 (Baseline):** $\approx 5\text{--}10$ ms total retrieval time (sub-millisecond FAISS search).
-- **Pipeline 2 (Re-Ranking):** $\approx 25\text{--}45$ ms on GPU ($\approx 80\text{--}120$ ms on CPU).
-- **Overhead:** Pipeline 2 is $5\times\text{--}8\times$ slower, but well within real-time interactive latency budgets (< 200 ms).
+## 📊 Summary of Empirical Results
 
-### Scaling Analysis ($O(N \cdot L^2)$ vs $O(N \cdot D)$)
-- Exhaustive Cross-Encoder search across 100,000 chunks would take **~1.5 hours** per query.
-- Two-Stage RAG takes **~35 ms** regardless of collection size, because expensive cross-attention is strictly limited to the top 10 candidates.
+All metrics below are extracted from the executed benchmark cells in `rag_reranking.ipynb`.
+
+### 1. Quantitative Retrieval Metrics (Cell 9)
+
+| Category | $N$ | Pool Recall@10 | Base Recall@3 | Rerank Recall@3 | $\Delta$ Recall@3 | Base MRR | Rerank MRR |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Buried Chunk** | 4 | 0.50 | 0.25 | 0.50 | **+0.25** | 0.275 | 0.333 |
+| **Control** | 4 | 1.00 | 1.00 | 1.00 | 0.00 | 0.708 | 0.833 |
+| **Exception** | 4 | 0.50 | 0.25 | 0.50 | **+0.25** | 0.125 | 0.208 |
+| **Keyword Trap** | 4 | 1.00 | 1.00 | 1.00 | 0.00 | 0.875 | **1.000** |
+| **Negation** | 4 | 0.50 | 0.25 | 0.50 | **+0.25** | 0.115 | 0.250 |
+| **OVERALL** | **20** | **0.70** | **0.55** | **0.70** | **+0.15** | **0.420** | **0.700** |
+
+**Key Insights:**
+- Re-ranking boosts overall Recall@3 from **0.55 $\to$ 0.70** (+0.15) and MRR from **0.420 $\to$ 0.700** (+0.280).
+- The pool ceiling is 0.70 (30% of gold passages are missing from the bi-encoder Top-10 candidate pool due to vocabulary mismatch); re-ranking reaches the theoretical maximum of the candidate pool.
+
+### 2. Showcase Rank Shifts & Qualitative Impact (Cell 10)
+
+| Query ID | Category | Gold Chunk | Base Rank | Rerank Rank | Shift | Answer 1 (Baseline) | Answer 2 (Re-Ranked) |
+|---|---|---|:---:|:---:|:---:|---|---|
+| **Q01** | Keyword Trap | `L12_027` | 6 | 1 | **+5** | Hallucinated offside sanction | ✅ Correct (no offence from corner kick) |
+| **Q05** | Exception | `L12_038` | 6 | 3 | **+3** | Missed deliberate-play carveout | ✅ Correct (deliberate play = no offence) |
+| **Q09** | Negation | `L12_030` | 8 | 2 | **+6** | Incorrectly awarded goal | ✅ Correct (goal kick awarded) |
+| **Q13** | Buried Chunk | `L03_009`* | 1 | 1 | 0 | Incomplete context | ✅ Correct (goal disallowed, direct free kick) |
+
+*Oracle control confirmed that feeding gold chunks directly eliminated all baseline errors, proving failure modes were retrieval-induced rather than generation hallucinations.*
+
+### 3. Stage-by-Stage Latency Breakdown (Cell 11, NVIDIA T4 GPU)
+
+| Retrieval Stage | Mean (ms) | P50 (ms) | P95 (ms) |
+|---|:---:|:---:|:---:|
+| 1. Bi-Encoder Query Embedding (`bge-small-en-v1.5`) | 10.87 | 10.51 | 11.91 |
+| 2. FAISS Vector Search (`IndexFlatIP`, Top-10) | 0.06 | 0.05 | 0.08 |
+| 3. Cross-Encoder Re-Ranking (`ms-marco-MiniLM-L-6-v2`, 10 pairs) | 36.28 | 35.32 | 39.15 |
+| **Pipeline 1 Total (Base)** | **10.93** | **10.57** | **11.98** |
+| **Pipeline 2 Total (Two-Stage RAG)** | **47.21** | **46.31** | **51.40** |
+
+*Pipeline 2 adds $\sim$36 ms overhead ($\approx 4.3\times$ slowdown), well within the 200 ms interactive latency threshold.*
+
+### 4. Scaling Extrapolation (Cell 12)
+
+| Corpus Scale | Chunks ($N$) | Exhaustive Cross-Encoder | Two-Stage RAG (Top-10) | Speedup |
+|---|:---:|:---:|:---:|:---:|
+| Current IFAB Subcorpus | 116 | 0.57 s | 54.3 ms | **10×** |
+| Enterprise Documentation | 10,000 | 49.31 s | 54.3 ms | **907×** |
+| Institutional Archive | 100,000 | 8.2 min | 54.3 ms | **9,079×** |
+| Web-Scale Collection | 1,000,000 | 1.4 hrs | 54.3 ms | **90,793×** |
+
+### 5. Extension Results (Cells 13 & 14)
+- **Candidate Pool Ablation:** Sweeping $K \in \{5, 10, 20, 50\}$ proves that Recall@3 jumps from 0.550 at $K=5$ to 0.700 at $K=10$, but plateaus thereafter (0.700 at $K=20$ and $K=50$), while latency increases linearly to 167.95 ms. $K=10$ is the empirical Pareto sweet spot.
+- **Hybrid BM25 + Dense RRF:** Fusing BM25 with BGE embeddings achieves **100% Hit@3 (4/4)** on Keyword Trap queries.
 
 ---
 
-## 📝 Guide for Your Written Report
+## 📄 LaTeX Report & Repository
 
-The assignment requires a concise report in your own words covering four areas. Here are the core conceptual points to include:
-
-1. **Architecture Comparison:**
-   - *Bi-Encoder:* Maps query and document independently into vector space ($D=384$). Token interactions only happen within each text. Fast because document vectors are precomputed.
-   - *Cross-Encoder:* Concatenates query and document into a single sequence ($[CLS] \circ Q \circ [SEP] \circ D$). Full cross-attention allows query tokens to attend directly to document tokens. Captures fine-grained interactions, word order, and negations, but cannot be pre-indexed.
-2. **Rank Shift & Answer Analysis:**
-   - Cite specific examples from Section 9 (e.g. Query `Q01`: chunk `L11_004` promoted from Rank 8 to Rank 1).
-   - Contrast Answer 1 (hallucinated or claimed offside applied) with Answer 2 (correctly identified that no offside offence occurs directly from a corner kick).
-   - Mention the Oracle Control: feeding the gold chunk directly confirms that the failure in Answer 1 was entirely due to retrieval omission, not LLM reasoning.
-   - Mention one honest failure where reranking tied or did not promote (e.g. when multiple chunks shared identical phrasing across Laws).
-3. **Latency Profiling:**
-   - Include the latency table from Section 10 showing Mean, P50, and P95 for embedding, vector search, cross-encoder scoring, and total times.
-4. **Scaling Question:**
-   - Explain why exhaustive cross-encoder search cannot scale to large collections due to quadratic self-attention complexity over $N$ candidates, whereas Two-Stage RAG achieves the best of both worlds (sub-millisecond candidate filtering + high-precision re-ranking).
+- **LaTeX Source:** [`report.tex`](file:///home/lparida/Desktop/Language%20Models%20and%20Agents/ass2/report.tex) contains the publication-ready report formatted with all tables, architecture analysis, and scaling proofs.
+- **GitHub Repository:** [https://github.com/shobhan-iiit/Rag1](https://github.com/shobhan-iiit/Rag1)
+- **Compilation:**
+  ```bash
+  pdflatex -interaction=nonstopmode report.tex
+  ```
+  *(Or upload directly to Overleaf for one-click compilation).*

@@ -322,18 +322,16 @@ keeping total query latency under 55\,ms regardless of collection size.
 
 \subsection{Candidate Pool Depth Ablation ($K \in \{5, 10, 20, 50\}$)}
 
-To investigate the sensitivity of second-stage re-ranking to initial pool depth,
-we swept candidate pool size $K \in \{5, 10, 20, 50\}$ across all 20 benchmark queries
-(Cell~13 in notebook).
-Table~\ref{tab:ablation} records the resulting Recall@3 and latency profile.
+We evaluated second-stage sensitivity to candidate pool depth $K \in \{5, 10, 20, 50\}$ across all 20 benchmark queries (Cell~13).
 
 \begin{table}[H]
 \centering
+\small
 \caption{Candidate pool depth ablation (from Cell~13 output).}
 \label{tab:ablation}
 \begin{tabular}{@{}cccc@{}}
 \toprule
-\textbf{Candidate Pool Size ($K$)} & \textbf{Mean Recall@3} & \textbf{Mean Latency (ms)} & \textbf{P95 Latency (ms)} \\
+\textbf{Pool Size ($K$)} & \textbf{Mean Recall@3} & \textbf{Mean Latency (ms)} & \textbf{P95 Latency (ms)} \\
 \midrule
 5  & 0.550 & 36.31 & 45.72 \\
 10 & 0.700 & 45.16 & 47.90 \\
@@ -343,23 +341,12 @@ Table~\ref{tab:ablation} records the resulting Recall@3 and latency profile.
 \end{tabular}
 \end{table}
 
-\noindent\textbf{Key empirical findings:}
-\begin{itemize}[nosep]
-    \item \textbf{Recall Plateau at $K=10$:} Expanding the candidate pool from $K=5$ to $K=10$ provides a substantial Recall@3 gain ($0.550 \to 0.700$, $+0.15$). However, widening the pool further to $K=20$ or $K=50$ produces \emph{zero additional gain} ($0.700 \to 0.700$).
-    \item \textbf{Underlying Ceiling:} The remaining 30\% of gold chunks are absent even from the top-50 candidates due to heavy semantic-lexical divergence. Re-ranking cannot rescue chunks outside the candidate pool.
-    \item \textbf{Linear Latency Scaling:} Cross-Encoder inference scales linearly with $K$ ($\approx 3.6$\,ms per candidate pair on GPU). At $K=50$, mean latency increases to $\sim$168\,ms (P95 $\approx$ 183\,ms), approaching the 200\,ms interactivity budget without any accuracy dividend.
-    \item \textbf{Pareto Optimal Point:} $K=10$ constitutes the optimal operating point on the accuracy--latency Pareto curve.
-\end{itemize}
+\noindent
+Expanding $K$ from 5 to 10 yields a $+0.15$ gain in Recall@3 ($0.550 \to 0.700$). However, expanding to $K=20$ or $K=50$ produces \emph{zero additional gain}, as the remaining 30\% of gold chunks are absent from the top-50 pool entirely. Because Cross-Encoder inference grows linearly with $K$ ($\approx 3.6$\,ms per candidate pair, reaching 167.95\,ms at $K=50$), $K=10$ represents the empirical Pareto-optimal operating point.
 
 \subsection{Hybrid Retrieval (BM25 + Dense RRF)}
 
-To address lexical gaps, we implemented an extension combining sparse lexical matching (BM25Okapi) with dense BGE vector search (Cell~14 in notebook), fused via Reciprocal Rank Fusion ($k=60$):
-\[
-    \text{RRF}(d) = \frac{1}{60 + r_{\text{dense}}(d)} + \frac{1}{60 + r_{\text{bm25}}(d)}.
-\]
-The fused candidates were then re-ranked by the Cross-Encoder.
-On the Keyword Trap query set, both Dense+CE and Hybrid+CE achieved $\text{Hit@3} = 1.00$ (4/4 queries correctly answered).
-While the dense retriever with Cross-Encoder re-ranking was already sufficient to resolve keyword traps on this corpus, hybrid retrieval provides an essential safeguard for production enterprise systems where exact alphanumeric codes, rule citations, or jargon must be indexed deterministically.
+We evaluated sparse lexical matching (BM25Okapi) fused with dense BGE vectors via Reciprocal Rank Fusion (Cell~14), defined as $\text{RRF}(d) = \frac{1}{60 + r_{\text{dense}}(d)} + \frac{1}{60 + r_{\text{bm25}}(d)}$, followed by Cross-Encoder re-ranking. On Keyword Trap queries, both Dense+CE and Hybrid+CE achieved $\text{Hit@3} = 1.00$ (4/4 queries). While dense re-ranking proved sufficient here, hybrid fusion offers a vital safeguard against lexical dropout when querying exact statutory numbers or domain jargon.
 
 % ───────────────────────────────────────────────────────────
 \section*{Code and Reproducibility}
