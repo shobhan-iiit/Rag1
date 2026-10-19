@@ -39,72 +39,27 @@
 \section{Architecture Comparison: Bi-Encoder vs.\ Cross-Encoder}
 \label{sec:architecture}
 
-The two retrieval architectures differ fundamentally in \emph{how} they
-represent query--document interactions.
+Bi-encoders and cross-encoders represent fundamentally different trade-offs between computational efficiency and interaction expressiveness.
 
-\subsection{Bi-Encoder (BAAI/bge-small-en-v1.5)}
+\textbf{Bi-Encoder (\texttt{bge-small-en-v1.5}):} Independently maps queries and document chunks into fixed-dimensional vectors ($\mathbf{h}_q = f_\theta(q), \mathbf{h}_{d_i} = f_\theta(d_i) \in \mathbb{R}^{384}$). Because passage embeddings are pre-computed offline and indexed in FAISS (\texttt{IndexFlatIP}), query-time retrieval reduces to a single query forward pass plus sub-millisecond dot-product scoring ($O(D)$ per candidate). However, because query and document tokens never interact directly in attention layers, bi-encoders are vulnerable to superficial lexical overlap, negations, and complex syntactic constraints.
 
-A Bi-Encoder maps the query $q$ and each document chunk $d_i$
-\textbf{independently} into a shared vector space of fixed dimensionality
-($D{=}384$ for BGE-small):
-\[
-    \mathbf{h}_q = f_\theta(q), \qquad
-    \mathbf{h}_{d_i} = f_\theta(d_i).
-\]
-Relevance is measured by cosine similarity (equivalently, inner product on
-$\ell_2$-normalised vectors):
-\[
-    \text{sim}(q, d_i)
-    = \frac{\mathbf{h}_q \cdot \mathbf{h}_{d_i}}
-           {\lVert\mathbf{h}_q\rVert\;\lVert\mathbf{h}_{d_i}\rVert}.
-\]
-Because document embeddings are computed \emph{offline} and stored in a FAISS
-\texttt{IndexFlatIP}, query-time cost reduces to a single forward pass for the
-query plus a sub-millisecond matrix--vector product over the index.  This makes
-Bi-Encoders extremely fast.
-
-However, each embedding is produced without any knowledge of the other text.
-Token-level interactions between query and document never occur, so the model
-can miss negations, word-order-dependent meaning, and fine-grained semantic
-nuances.
-
-\subsection{Cross-Encoder (ms-marco-MiniLM-L-6-v2)}
-
-A Cross-Encoder concatenates the query and a candidate document into a single
-input sequence:
-\[
-    \text{input} = [\texttt{CLS}]\;\circ\;q\;\circ\;[\texttt{SEP}]\;\circ\;d_i
-\]
-The entire sequence passes through a transformer stack with full
-self-attention, producing a relevance logit from the \texttt{[CLS]} token:
-\[
-    s(q, d_i) = W^\top \, \text{Transformer}(q \circ d_i).
-\]
-Because every query token can attend to every document token, the
-Cross-Encoder captures fine-grained interactions---negations (``\textit{not
-allowed}''), exceptions (``\textit{except when\ldots}''), and buried clauses
-that share little surface lexical overlap with the query.
-
-The cost is one full transformer forward pass \emph{per candidate}.  With 10
-candidates this is manageable ($\sim$20--40\,ms on GPU); scoring the entire
-collection would be prohibitive (see Section~\ref{sec:scaling}).
-
-\subsection{Summary}
+\textbf{Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2}):} Jointly encodes the concatenated sequence ($[\texttt{CLS}] \circ q \circ [\texttt{SEP}] \circ d_i$) under full all-to-all cross-attention. Every query token directly attends to every document token, capturing nuanced exceptions, negative conditions, and semantic dependencies. However, scoring requires a full transformer forward pass per candidate ($O((L_q + L_d)^2)$), making exhaustive corpus evaluation computationally prohibitive. Its optimal role is second-stage precision re-ranking over a small candidate pool ($K{=}10 \to 3$).
 
 \begin{table}[H]
 \centering
-\caption{Side-by-side comparison of the two encoder architectures.}
+\small
+\caption{Architectural comparison of the two retrieval models.}
 \label{tab:arch}
 \begin{tabular}{@{}lcc@{}}
 \toprule
 \textbf{Property} & \textbf{Bi-Encoder} & \textbf{Cross-Encoder} \\
 \midrule
-Encoding       & Independent        & Joint (query + doc) \\
-Token interaction  & None (post-hoc dot product)  & Full cross-attention \\
-Pre-indexable  & Yes                & No \\
-Inference cost per candidate & $O(D)$ dot product  & $O((L_q{+}L_d)^2)$ attention \\
-Sensitivity to negation  & Low   & High \\
-Role in pipeline & Candidate retrieval (Top-$K$) & Precision re-ranking (Top-$K \to$ Top-3) \\
+Encoding Mechanism       & Independent ($\mathbf{h}_q, \mathbf{h}_d \in \mathbb{R}^{384}$) & Joint ($[\texttt{CLS}] \circ q \circ [\texttt{SEP}] \circ d$) \\
+Token Interaction        & None (post-hoc dot product) & Full transformer cross-attention \\
+Offline Pre-indexing     & Yes (FAISS \texttt{IndexFlatIP}) & No (requires query at inference) \\
+Per-Candidate Complexity & $O(D)$ dot product & $O((L_q + L_d)^2)$ self-attention \\
+Sensitivity to Negation  & Low (topic/keyword bias) & High (captures negative constraints) \\
+Role in Pipeline         & Candidate retrieval (Top-$K$) & Precision re-ranking (Top-$K \to$ Top-3) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -130,21 +85,24 @@ full query set.
 
 \begin{table}[H]
 \centering
+\small
 \caption{Retrieval metrics by query category (from Cell~9 output).}
 \label{tab:metrics}
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
-\textbf{Category} & \textbf{N} & \textbf{Pool R@10} & \textbf{Base R@3} & \textbf{Rerank R@3} & \textbf{$\Delta$ R@3} & \textbf{Base MRR} & \textbf{Rerank MRR} \\
+\textbf{Category} & \textbf{$N$} & \textbf{Pool R@10} & \textbf{Base R@3} & \textbf{Rerank R@3} & \textbf{$\Delta$ R@3} & \textbf{Base MRR} & \textbf{Rerank MRR} \\
 \midrule
-Buried Chunk    & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.275 & 0.333 \\
-Control         & 4 & 1.00 & 1.00 & 1.00 & $0.00$  & 0.708 & 0.833 \\
-Exception       & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.125 & 0.208 \\
-Keyword Trap    & 4 & 1.00 & 1.00 & 1.00 & $0.00$  & 0.875 & 1.000 \\
-Negation        & 4 & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.115 & 0.250 \\
+Buried Chunk    & 4  & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.275 & 0.333 \\
+Control         & 4  & 1.00 & 1.00 & 1.00 & $0.00$  & 0.708 & 0.833 \\
+Exception       & 4  & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.125 & 0.208 \\
+Keyword Trap    & 4  & 1.00 & 1.00 & 1.00 & $0.00$  & 0.875 & 1.000 \\
+Negation        & 4  & 0.50 & 0.25 & 0.50 & $+0.25$ & 0.115 & 0.250 \\
 \midrule
-\textbf{Overall}& 20& 0.70 & 0.55 & 0.70 & $+0.15$ & 0.420 & 0.700 \\
+\textbf{Overall}& 20 & 0.70 & 0.55 & 0.70 & $+0.15$ & 0.420 & 0.700 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \noindent
@@ -161,11 +119,13 @@ one per adversarial category.
 
 \begin{table}[H]
 \centering
+\small
 \caption{Rank shifts for showcase failure queries (from Cell~10 output).}
 \label{tab:showcase}
-\begin{tabular}{@{}lp{5.0cm}cccc@{}}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lp{6.2cm}cccc@{}}
 \toprule
-\textbf{ID} & \textbf{Query (abridged)} & \textbf{Gold Chunk} & \textbf{Base Rank} & \textbf{Rerank Rank} & \textbf{Shift} \\
+\textbf{ID (Category)} & \textbf{Query (abridged)} & \textbf{Gold Chunk} & \textbf{Base Rank} & \textbf{Rerank Rank} & \textbf{Shift} \\
 \midrule
 Q01 (Keyword Trap)  & Is an attacker penalised for offside from a corner kick?
                     & \texttt{L12\_027} & 6 & 1 & $+5$ \\
@@ -174,9 +134,10 @@ Q05 (Exception)     & Under what condition is an offside player NOT penalised wh
 Q09 (Negation)      & Can a goalkeeper score by throwing the ball into the opponent's goal?
                     & \texttt{L12\_030} & 8 & 2 & $+6$ \\
 Q13 (Buried Chunk)  & What happens if an extra player is on the pitch when a goal is scored?
-                    & \texttt{L03\_009} & 1 & 1 & $0$ \\
+                    & \texttt{L03\_009}$^*$ & 1 & 1 & $0$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \noindent
