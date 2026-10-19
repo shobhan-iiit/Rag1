@@ -66,22 +66,25 @@ Role in Pipeline         & Candidate retrieval (Top-$K$) & Precision re-ranking 
 
 
 % ───────────────────────────────────────────────────────────
-\section{Qualitative \& Rank Shift Analysis}
+% ───────────────────────────────────────────────────────────
+\section{Failure Mode Analysis \& Qualitative Rank Shift Evaluation}
 \label{sec:qualitative}
 
-\subsection{Evaluation Design}
+\subsection{Failure Mode Categories (Stress Testing)}
 
-We constructed a 20-query stress-testing suite across five failure categories:
-\textbf{Keyword Trap} (4), \textbf{Exception / Corner Case} (4),
-\textbf{Negation} (4), \textbf{Buried Chunk} (4), and a non-adversarial
-\textbf{Control Set} (4).  Gold labels are \emph{span-anchored}: each query
-stores a verbatim answer span from the IFAB document, which is matched at
-runtime to the chunk(s) containing it.
+To evaluate the practical benefit of Cross-Encoder re-ranking, we designed a 20-query stress-testing benchmark across four adversarial failure categories plus a control set (4 queries each), using span-anchored ground truth from the IFAB Laws of the Game 2026/27:
+
+\begin{itemize}[leftmargin=1.5em, itemsep=2pt]
+    \item \textbf{Keyword Trap / Distractor:} Queries with high lexical overlap to an irrelevant passage, while the true answer uses distinct terminology or synonyms (e.g., general offside position definitions crowding out restart exceptions).
+    \item \textbf{Exceptions \& Corner Cases:} The baseline retrieves a general rule chunk, but misses a specific restriction, penalty, or ``except when\ldots'' condition located elsewhere (e.g., deliberate play by an opponent overturning an offside offence).
+    \item \textbf{Negation \& Constraints:} Queries with qualifiers such as ``not allowed'', ``prohibited'', or role limits where bi-encoder embeddings blur negative and positive context (e.g., goalkeeper throwing the ball into the opponent's goal).
+    \item \textbf{Document-Specific Buried Chunks:} Document-specific rule interactions where a vital passage is buried at initial ranks 4--10 by dense vector search, but is successfully promoted into the Top~3 by the Cross-Encoder (e.g., sanctions for extra persons on the pitch).
+    \item \textbf{Control Set:} Non-adversarial factual queries (e.g., pitch dimensions, half duration) to baseline uncontaminated retrieval quality.
+\end{itemize}
 
 \subsection{Quantitative Metrics Overview}
 
-Table~\ref{tab:metrics} summarises the retrieval quality metrics across the
-full query set.
+Table~\ref{tab:metrics} summarises retrieval performance across all five categories.
 
 \begin{table}[H]
 \centering
